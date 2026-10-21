@@ -1,11 +1,11 @@
 package handlers
 
 import (
-	"ecommerece/data"
+	"ecommerece/database"
 	"ecommerece/util"
 	"net/http"
 )
 
 func GetProducts(w http.ResponseWriter, r *http.Request) {
-	util.SendData(w, data.ProductList, 200)
+	util.SendData(w, database.List(), 200)
 }

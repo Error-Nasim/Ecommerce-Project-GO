@@ -1,7 +1,7 @@
 package handlers
 
 import (
-	"ecommerece/data"
+	"ecommerece/database"
 	"ecommerece/util"
 	"encoding/json"
 	"fmt"
@@ -9,7 +9,7 @@ import (
 )
 
 func CreateProduct(w http.ResponseWriter, r *http.Request) {
-	var newProduct data.Product
+	var newProduct database.Product
 
 	decoder := json.NewDecoder(r.Body)
 	err := decoder.Decode(&newProduct)
@@ -20,8 +20,7 @@ func CreateProduct(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	newProduct.ID = len(data.ProductList) + 1
-	data.ProductList = append(data.ProductList, newProduct)
+	createdProduct := database.Store(newProduct)
 
-	util.SendData(w, newProduct, 201)
+	util.SendData(w, createdProduct, 201)
 }
