@@ -8,21 +8,28 @@ This project is created as part of my journey learning backend development in Go
 
 ## 📌 Project Overview
 
-This API provides core e-commerce backend functionalities including product management, user registration, and authentication using custom JSON Web Tokens (JWT). The codebase is designed to avoid unnecessary heavy frameworks by leveraging Go's modern standard library routing (`net/http.ServeMux`), custom middleware chaining, and in-memory data structures.
+This API provides core e-commerce backend functionalities including product management, user registration, review handling, and authentication using custom JSON Web Tokens (JWT). 
+
+The codebase follows a clean, feature-driven modular architecture with dependency injection, standard library routing (`net/http.ServeMux`), custom middleware chaining, and in-memory data structures—all without relying on heavy third-party web frameworks.
 
 ---
 
-## ✨ Features
+## ✨ Features & Architecture
 
+- **Domain-Driven Modularization**: Handlers and route registrations are grouped by domain (`product`, `user`, `review`), each with its own `RegisterRoutes` method.
+- **Dependency Injection**: Dependencies (config, middlewares, and handlers) are instantiated and injected cleanly in `cmd/serve.go` into the `rest.Server` struct.
+- **Optimized Configuration**: Centralized environment variable loader via `godotenv` with pointer caching (`*Config`) to prevent repetitive reloading of `.env`.
 - **Standard Library Routing**: Uses Go 1.22+ enhanced `net/http.ServeMux` with pattern matching (`METHOD /path/{id}`).
-- **Custom Middleware Architecture**: A reusable `Manager` to handle global and route-specific middleware pipelines.
-  - **Logging**: Request method, URI, status code, and duration tracking.
-  - **CORS & Preflight**: Configured HTTP headers and `OPTIONS` request handling.
-  - **JWT Authentication**: Protected routes requiring valid Bearer tokens.
-- **Custom JWT Implementation**: Hand-crafted HS256 (HMAC-SHA256) token generation and verification without external JWT libraries.
-- **Product Management**: Full CRUD operations for products (in-memory mock database).
-- **User Authentication**: User registration and login with JWT access token generation.
-- **Environment Configuration**: Centralized environment variable loader using `godotenv`.
+- **Custom Middleware Architecture**:
+  - Reusable `Manager` for global and route-specific middleware pipelines (`With`, `WrapMux`).
+  - **Injected Middleware Pipeline**: `Middlewares` struct with injected `*config.Config` for fast, direct access to secret keys.
+  - **Request Logger**: Tracks method, URL path, HTTP status, and request duration.
+  - **CORS & Preflight**: Handles cross-origin requests and `OPTIONS` preflight headers.
+  - **JWT Authentication**: Validates Bearer tokens on protected endpoints.
+- **Custom JWT Implementation**: Hand-crafted HS256 (HMAC-SHA256) signature generation and verification without external JWT libraries.
+- **Product Management**: Full CRUD operations for products with seeded mock data.
+- **User Authentication**: Registration and login endpoints returning signed JWT access tokens.
+- **Reviews Feature**: Domain structure prepared for review processing.
 
 ---
 
@@ -30,29 +37,39 @@ This API provides core e-commerce backend functionalities including product mana
 
 ```text
 ├── cmd/
-│   └── serve.go                  # Server command runner
+│   └── serve.go                  # Application bootstrapper & dependency injection
 ├── config/
-│   └── config.go                 # Environment config loader (.env validation)
+│   └── config.go                 # Environment config loader (.env validation & pointer return)
 ├── database/
 │   ├── product.go                # Product model & in-memory data store with seed items
 │   └── user.go                   # User model & in-memory data store
 ├── rest/
 │   ├── handlers/
-│   │   ├── create_product.go     # Create new product
-│   │   ├── get_products.go       # List all products
-│   │   ├── get_product.go        # Fetch product by ID
-│   │   ├── update_product.go     # Update existing product
-│   │   ├── delete_product.go     # Delete product by ID
-│   │   ├── create_user.go        # Register new user
-│   │   └── login.go              # User login & JWT issuance
+│   │   ├── product/              # Product domain module
+│   │   │   ├── handler.go        # Product Handler struct with middleware dependencies
+│   │   │   ├── routes.go         # Product routes registration
+│   │   │   ├── create_product.go # Create new product (Protected)
+│   │   │   ├── get_products.go   # List all products
+│   │   │   ├── get_product.go    # Fetch product by ID
+│   │   │   ├── update_product.go # Update existing product (Protected)
+│   │   │   └── delete_product.go # Delete product by ID (Protected)
+│   │   ├── review/               # Review domain module
+│   │   │   ├── handler.go        # Review Handler struct
+│   │   │   ├── routes.go         # Review routes registration
+│   │   │   └── get_reviews.go    # Review handler implementation
+│   │   └── user/                 # User domain module
+│   │       ├── handler.go        # User Handler struct
+│   │       ├── routes.go         # User routes registration
+│   │       ├── create_user.go    # Register new user
+│   │       └── login.go          # User login & JWT issuance
 │   ├── middlewares/
+│   │   ├── middleware.go         # Middlewares struct holding config dependencies
 │   │   ├── manager.go            # Middleware manager & chaining helper
 │   │   ├── logger.go             # HTTP request logger
 │   │   ├── cors.go               # CORS headers middleware
 │   │   ├── preflight.go          # OPTIONS preflight request handler
-│   │   └── authenticate_jwt.go   # JWT validation middleware
-│   ├── routes.go                 # Route definitions & middleware attachment
-│   └── server.go                 # Server initialization & HTTP listener
+│   │   └── authenticate_jwt.go   # JWT validation middleware using injected config
+│   └── server.go                 # Server struct with injected handlers & HTTP listener
 ├── util/
 │   ├── create_jwt.go             # HMAC-SHA256 JWT creator & Base64URL encoder
 │   └── send_data.go              # JSON response helpers (SendData, SendError)
@@ -102,7 +119,7 @@ go mod tidy
 go run main.go
 ```
 
-The server should start on the configured port:
+The server will start on the configured port:
 ```text
 Server running on port :4000
 ```
@@ -117,6 +134,7 @@ Server running on port :4000
 |---|---|---|---|
 | `GET` | `/products` | List all available products | No |
 | `GET` | `/products/{id}` | Get product details by ID | No |
+| `GET` | `/reviews` | Retrieve product reviews | No |
 | `POST` | `/users` | Register a new user | No |
 | `POST` | `/users/login` | Authenticate user and receive JWT | No |
 
@@ -224,9 +242,9 @@ GET /products HTTP/1.1
   {
     "id": 1,
     "title": "Orange",
-    "description": "Very Sweet Orange",
+    "description": "Very Sweet Orange, Sweet like Sadie Sink",
     "price": 100,
-    "imageUrl": "..."
+    "imageUrl": "https://..."
   }
 ]
 ```
@@ -243,6 +261,12 @@ GET /products HTTP/1.1
 - [x] Logger, CORS, and Preflight middlewares
 - [x] User registration & login handlers
 - [x] Custom HS256 JWT generator & verification middleware
+- [x] **Modular Architecture Refactoring**:
+  - [x] Domain-driven handler packages (`product`, `user`, `review`)
+  - [x] Encapsulated `RegisterRoutes` per domain
+  - [x] Dependency injection via `rest.NewServer` and handler constructors
+  - [x] Cached config pointer (`*Config`) to avoid repetitive `.env` reading
+  - [x] Middlewares struct with injected configuration
 - [ ] Connect a persistent database (PostgreSQL / MySQL)
 - [ ] Password hashing with `bcrypt`
 - [ ] Token expiration and Refresh Token rotation
