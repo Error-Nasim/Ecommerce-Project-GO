@@ -9,6 +9,7 @@ import (
 )
 
 func CreateProduct(w http.ResponseWriter, r *http.Request) {
+
 	var newProduct database.Product
 
 	decoder := json.NewDecoder(r.Body)
