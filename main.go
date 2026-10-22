@@ -1,10 +1,9 @@
 package main
 
-import (
-	"ecommerece/cmd"
-)
+import "ecommerece/cmd"
 
 func main() {
 
 	cmd.Serve()
+
 }
