@@ -3,13 +3,12 @@ package middleware
 import (
 	"crypto/hmac"
 	"crypto/sha256"
-	"ecommerece/config"
 	"encoding/base64"
 	"net/http"
 	"strings"
 )
 
-func AuthenticateJwt(next http.Handler) http.Handler {
+func (m *Middlewares) AuthenticateJwt(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		header := r.Header.Get("Authorization")
 		if header == "" {
@@ -32,8 +31,8 @@ func AuthenticateJwt(next http.Handler) http.Handler {
 		signature := tokenParts[2]
 
 		message := jwtHeader + "." + jwtPayload
-		cnf := config.GetConfig()
-		byteArrSecret := []byte(cnf.JwtSecretKey)
+
+		byteArrSecret := []byte(m.cnf.JwtSecretKey)
 		byteArrMEssage := []byte(message)
 
 		h := hmac.New(sha256.New, byteArrSecret)
