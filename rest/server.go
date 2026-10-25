@@ -3,7 +3,6 @@ package rest
 import (
 	"ecommerece/config"
 	"ecommerece/rest/handlers/product"
-	"ecommerece/rest/handlers/review"
 	"ecommerece/rest/handlers/user"
 	middleware "ecommerece/rest/middlewares"
 	"fmt"
@@ -16,20 +15,17 @@ type Server struct {
 	cnf            *config.Config
 	productHandler *product.Handler
 	userHandler    *user.Handler
-	reviewHandler  *review.Handler
 }
 
 func NewServer(
 	cnf *config.Config,
 	productHandler *product.Handler,
 	userHandler *user.Handler,
-	reviewHandler *review.Handler,
 ) *Server {
 	return &Server{
 		cnf:            cnf,
 		productHandler: productHandler,
 		userHandler:    userHandler,
-		reviewHandler:  reviewHandler,
 	}
 }
 
@@ -46,7 +42,6 @@ func (server *Server) Start() {
 
 	server.productHandler.RegisterRoutes(mux, manager)
 	server.userHandler.RegisterRoutes(mux, manager)
-	server.reviewHandler.RegisterRoutes(mux, manager)
 
 	addr := ":" + strconv.Itoa(server.cnf.HttpPort)
 	fmt.Println("Server running on port", addr)

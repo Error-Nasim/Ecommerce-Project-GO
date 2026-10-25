@@ -8,16 +8,25 @@ This project is created as part of my journey learning backend development in Go
 
 ## 📌 Project Overview
 
-This API provides core e-commerce backend functionalities including product management, user registration, review handling, and authentication using custom JSON Web Tokens (JWT). 
+This API provides core e-commerce backend functionalities including product management, user registration, and authentication using custom JSON Web Tokens (JWT). 
 
-The codebase follows a clean, feature-driven modular architecture with dependency injection, standard library routing (`net/http.ServeMux`), custom middleware chaining, and in-memory data structures—all without relying on heavy third-party web frameworks.
+The codebase follows a clean, feature-driven modular architecture with **Repository Pattern (Go interfaces)**, dependency injection, standard library routing (`net/http.ServeMux`), custom middleware chaining, and dedicated request DTOs—all without relying on heavy third-party web frameworks.
 
 ---
 
 ## ✨ Features & Architecture
 
-- **Domain-Driven Modularization**: Handlers and route registrations are grouped by domain (`product`, `user`, `review`), each with its own `RegisterRoutes` method.
-- **Dependency Injection**: Dependencies (config, middlewares, and handlers) are instantiated and injected cleanly in `cmd/serve.go` into the `rest.Server` struct.
+- **Domain-Driven Modularization**: Handlers and route registrations are grouped by domain (`product`, `user`), each encapsulating its own `RegisterRoutes` method.
+- **Repository Pattern with Interfaces**: Decouples data access from HTTP handler logic via Go interfaces:
+  - `repo.ProductRepo`: CRUD operations (`Create`, `Get`, `List`, `Update`, `Delete`) with an in-memory implementation and seed catalog.
+  - `repo.UserRepo`: User storage and credential lookup (`Create`, `Find`).
+  - Swapping in-memory storage for persistent SQL databases (PostgreSQL/MySQL) requires only a new repository implementation satisfying the interface.
+- **Dependency Injection**:
+  - `cmd/serve.go` wires dependencies: repositories (`ProductRepo`, `UserRepo`), configuration (`*Config`), and middlewares (`*Middlewares`).
+  - `product.Handler` receives `*Middlewares` and `ProductRepo`.
+  - `user.Handler` receives `*Config` and `UserRepo`.
+  - `rest.Server` receives `*Config` and domain handlers.
+- **Request Data Transfer Objects (DTOs)**: Incoming JSON payloads are deserialized into explicit request DTO structs (`ReqCreateProduct`, `ReqUpdateProduct`, `ReqCreateUser`, `ReqLogin`) rather than raw models.
 - **Optimized Configuration**: Centralized environment variable loader via `godotenv` with pointer caching (`*Config`) to prevent repetitive reloading of `.env`.
 - **Standard Library Routing**: Uses Go 1.22+ enhanced `net/http.ServeMux` with pattern matching (`METHOD /path/{id}`).
 - **Custom Middleware Architecture**:
@@ -25,11 +34,10 @@ The codebase follows a clean, feature-driven modular architecture with dependenc
   - **Injected Middleware Pipeline**: `Middlewares` struct with injected `*config.Config` for fast, direct access to secret keys.
   - **Request Logger**: Tracks method, URL path, HTTP status, and request duration.
   - **CORS & Preflight**: Handles cross-origin requests and `OPTIONS` preflight headers.
-  - **JWT Authentication**: Validates Bearer tokens on protected endpoints.
-- **Custom JWT Implementation**: Hand-crafted HS256 (HMAC-SHA256) signature generation and verification without external JWT libraries.
+  - **JWT Authentication**: Validates Bearer tokens on protected endpoints using HMAC-SHA256 signature verification.
+- **Custom JWT Implementation**: Hand-crafted HS256 signature generation and verification without external JWT libraries.
 - **Product Management**: Full CRUD operations for products with seeded mock data.
 - **User Authentication**: Registration and login endpoints returning signed JWT access tokens.
-- **Reviews Feature**: Domain structure prepared for review processing.
 
 ---
 
@@ -40,28 +48,24 @@ The codebase follows a clean, feature-driven modular architecture with dependenc
 │   └── serve.go                  # Application bootstrapper & dependency injection
 ├── config/
 │   └── config.go                 # Environment config loader (.env validation & pointer return)
-├── database/
-│   ├── product.go                # Product model & in-memory data store with seed items
-│   └── user.go                   # User model & in-memory data store
+├── repo/
+│   ├── product.go                # Product model, ProductRepo interface & in-memory implementation
+│   └── user.go                   # User model, UserRepo interface & in-memory implementation
 ├── rest/
 │   ├── handlers/
 │   │   ├── product/              # Product domain module
-│   │   │   ├── handler.go        # Product Handler struct with middleware dependencies
+│   │   │   ├── handler.go        # Product Handler struct with injected middlewares & ProductRepo
 │   │   │   ├── routes.go         # Product routes registration
-│   │   │   ├── create_product.go # Create new product (Protected)
+│   │   │   ├── create_product.go # Create new product (Protected, uses ReqCreateProduct DTO)
 │   │   │   ├── get_products.go   # List all products
 │   │   │   ├── get_product.go    # Fetch product by ID
-│   │   │   ├── update_product.go # Update existing product (Protected)
+│   │   │   ├── update_product.go # Update existing product (Protected, uses ReqUpdateProduct DTO)
 │   │   │   └── delete_product.go # Delete product by ID (Protected)
-│   │   ├── review/               # Review domain module
-│   │   │   ├── handler.go        # Review Handler struct
-│   │   │   ├── routes.go         # Review routes registration
-│   │   │   └── get_reviews.go    # Review handler implementation
 │   │   └── user/                 # User domain module
-│   │       ├── handler.go        # User Handler struct
+│   │       ├── handler.go        # User Handler struct with injected config & UserRepo
 │   │       ├── routes.go         # User routes registration
-│   │       ├── create_user.go    # Register new user
-│   │       └── login.go          # User login & JWT issuance
+│   │       ├── create_user.go    # Register new user (uses ReqCreateUser DTO)
+│   │       └── login.go          # User login & JWT issuance (uses ReqLogin DTO)
 │   ├── middlewares/
 │   │   ├── middleware.go         # Middlewares struct holding config dependencies
 │   │   ├── manager.go            # Middleware manager & chaining helper
@@ -134,7 +138,6 @@ Server running on port :4000
 |---|---|---|---|
 | `GET` | `/products` | List all available products | No |
 | `GET` | `/products/{id}` | Get product details by ID | No |
-| `GET` | `/reviews` | Retrieve product reviews | No |
 | `POST` | `/users` | Register a new user | No |
 | `POST` | `/users/login` | Authenticate user and receive JWT | No |
 
@@ -236,7 +239,7 @@ Content-Type: application/json
 GET /products HTTP/1.1
 ```
 
-**Response (200 OK):**
+**Response (201 Created):**
 ```json
 [
   {
@@ -262,12 +265,19 @@ GET /products HTTP/1.1
 - [x] User registration & login handlers
 - [x] Custom HS256 JWT generator & verification middleware
 - [x] **Modular Architecture Refactoring**:
-  - [x] Domain-driven handler packages (`product`, `user`, `review`)
+  - [x] Domain-driven handler packages (`product`, `user`)
   - [x] Encapsulated `RegisterRoutes` per domain
   - [x] Dependency injection via `rest.NewServer` and handler constructors
   - [x] Cached config pointer (`*Config`) to avoid repetitive `.env` reading
   - [x] Middlewares struct with injected configuration
+- [x] **Repository Pattern & Layer Decoupling**:
+  - [x] Segregated data layer into `repo` package with `ProductRepo` and `UserRepo` Go interfaces
+  - [x] In-memory repository implementations (`productRepo`, `userRepo`)
+  - [x] Handlers depend on repository interfaces rather than concrete package state
+  - [x] Dedicated Request DTOs (`ReqCreateProduct`, `ReqUpdateProduct`, `ReqCreateUser`, `ReqLogin`)
+  - [x] Injected repositories into handler constructors
 - [ ] Connect a persistent database (PostgreSQL / MySQL)
+- [ ] Add Reviews domain & handlers
 - [ ] Password hashing with `bcrypt`
 - [ ] Token expiration and Refresh Token rotation
 - [ ] Role-based access control (RBAC - e.g. Shop Owner vs Customer)
