@@ -1,12 +1,11 @@
 -- +migrate Up
 
 CREATE TABLE IF NOT EXISTS products (
-    id SERIAL PRIMARY KEY,
-    first_name VARCHAR(100),
-    last_name VARCHAR(100),
-    email VARCHAR(255) UNIQUE NOT NULL,
-    password VARCHAR(255) NOT NULL,
-    is_shop_owner BOOLEAN DEFAULT FALSE,
+    id BIGSERIAL PRIMARY KEY,
+    title VARCHAR(255) NOT NULL,
+    description TEXT,
+    price DOUBLE PRECISION NOT NULL,
+    img_url TEXT,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
