@@ -1,6 +1,6 @@
 CREATE TABLE IF NOT EXISTS products (
     id BIGSERIAL PRIMARY KEY,
-    titile VARCHAR(255) NOT NULL,
+    title VARCHAR(255) NOT NULL,
     description TEXT,
     price DOUBLE PRECISION NOT NULL,
     img_url TEXT,
