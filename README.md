@@ -2,7 +2,7 @@
 
 A modular, lightweight RESTful E-Commerce API built with **Go (Golang)** using the standard library `net/http`, **PostgreSQL** with `sqlx`, and clean architectural patterns.
 
-This project is created as part of my journey learning backend development in Go, following the **[Go with Habib](https://www.youtube.com/@gowithhabib)** YouTube channel tutorials.
+This project is created as part of my journey learning backend development in Go, following the **[Go with Habib - Golang Backend Development (Beginner Friendly)](https://youtube.com/playlist?list=PLpCqPSEm2Xe8sEY2haMDUVgwbkIs5NCJI)** YouTube channel tutorials.
 
 ---
 
@@ -10,7 +10,7 @@ This project is created as part of my journey learning backend development in Go
 
 This API provides core e-commerce backend functionalities including product management, user registration, and authentication using custom JSON Web Tokens (JWT). 
 
-The codebase follows a clean, feature-driven modular architecture with the **Repository Pattern (Go interfaces)**, PostgreSQL persistence via `sqlx`, dependency injection, standard library routing (`net/http.ServeMux`), custom middleware chaining, and dedicated request DTOs—all without relying on heavy third-party web frameworks.
+The codebase follows a clean, feature-driven modular architecture with the **Repository Pattern (Go interfaces)**, PostgreSQL persistence via `sqlx`, automated database migrations via `sql-migrate`, dependency injection, standard library routing (`net/http.ServeMux`), custom middleware chaining, and dedicated request DTOs—all without relying on heavy third-party web frameworks.
 
 ---
 
@@ -19,19 +19,24 @@ The codebase follows a clean, feature-driven modular architecture with the **Rep
 - **Domain-Driven Modularization**: Handlers and route registrations are grouped by domain (`product`, `user`), each encapsulating its own `RegisterRoutes` method.
 - **Repository Pattern with Interfaces**: Decouples data access from HTTP handler logic via Go interfaces:
   - `repo.UserRepo`: User registration and credential lookup (`Create`, `Find`) backed by **PostgreSQL** via `sqlx`.
-  - `repo.ProductRepo`: CRUD operations (`Create`, `Get`, `List`, `Update`, `Delete`) with an in-memory implementation and seed catalog (ready for PostgreSQL migration).
+  - `repo.ProductRepo`: Full CRUD operations (`Create`, `Get`, `List`, `Update`, `Delete`) backed by **PostgreSQL** via `sqlx`.
 - **Persistent Database (PostgreSQL & `sqlx`)**:
   - Integrated with PostgreSQL using `github.com/jmoiron/sqlx` and `github.com/lib/pq`.
-  - Schema DDL files organized in `db_queries/` (e.g., `db_queries/001-user.sql`).
-  - Infrastructure connection manager in `infra/db/connection.go`.
-  - Safe parameterized SQL queries (`$1, $2`) and named queries (`NamedQuery`) with `RETURNING id`.
+  - Safe parameterized SQL queries (`$1, $2, ...`) and `RETURNING id` statements.
+  - Infrastructure connection builder in `infra/db/connection.go` assembling connection strings dynamically from structured configuration.
+- **Automated Database Migrations**:
+  - Migration management powered by `github.com/rubenv/sql-migrate` in `infra/db/migrate.go`.
+  - Versioned migration files in `migrations/` with `-- +migrate Up` and `-- +migrate Down` definitions.
+  - Automatically runs pending migrations on application startup (`cmd/serve.go`).
+- **Centralized Configuration & Secrets Management**:
+  - Strongly typed configuration structs (`config.Config`, `config.DBConfig`) parsing server and database options.
+  - Secure `.env` handling: `.env` is untracked in `.gitignore`, and a clean [`.env.example`](.env.example) template is provided for setup.
 - **Dependency Injection**:
   - `cmd/serve.go` wires dependencies: DB connection (`*sqlx.DB`), repositories (`ProductRepo`, `UserRepo`), configuration (`*Config`), and middlewares (`*Middlewares`).
   - `user.Handler` receives `*Config` and `UserRepo`.
   - `product.Handler` receives `*Middlewares` and `ProductRepo`.
   - `rest.Server` receives `*Config` and domain handlers.
 - **Request Data Transfer Objects (DTOs)**: Incoming JSON payloads are deserialized into explicit request DTO structs (`ReqCreateProduct`, `ReqUpdateProduct`, `ReqCreateUser`, `ReqLogin`) rather than raw models.
-- **Optimized Configuration**: Centralized environment variable loader via `godotenv` with pointer caching (`*Config`) to prevent repetitive reloading of `.env`.
 - **Standard Library Routing**: Uses Go 1.22+ enhanced `net/http.ServeMux` with pattern matching (`METHOD /path/{id}`).
 - **Custom Middleware Architecture**:
   - Reusable `Manager` for global and route-specific middleware pipelines (`With`, `WrapMux`).
@@ -40,8 +45,6 @@ The codebase follows a clean, feature-driven modular architecture with the **Rep
   - **CORS & Preflight**: Handles cross-origin requests and `OPTIONS` preflight headers.
   - **JWT Authentication**: Validates Bearer tokens on protected endpoints using HMAC-SHA256 signature verification.
 - **Custom JWT Implementation**: Hand-crafted HS256 signature generation and verification without external JWT libraries.
-- **Product Management**: Full CRUD operations for products with seeded mock data.
-- **User Authentication**: Registration and login endpoints persisting into PostgreSQL and returning signed JWT access tokens.
 
 ---
 
@@ -49,16 +52,23 @@ The codebase follows a clean, feature-driven modular architecture with the **Rep
 
 ```text
 ├── cmd/
-│   └── serve.go                  # Application bootstrapper, DB init & dependency injection
+│   └── serve.go                  # Application bootstrapper, DB connection, auto-migration & DI
 ├── config/
-│   └── config.go                 # Environment config loader (.env validation & pointer return)
-├── db_queries/
-│   └── 001-user.sql              # PostgreSQL DDL table schema for users
+│   └── config.go                 # Environment & DB config loader (Config, DBConfig)
+├── db_queries/                   # Standalone reference SQL DDL schemas
+│   ├── 001-user.sql              # Users table schema
+│   └── 002-create-table-product.sql # Products table schema
 ├── infra/
 │   └── db/
-│       └── connection.go         # PostgreSQL connection establishment using sqlx & lib/pq
+│       ├── connection.go         # PostgreSQL connection builder using sqlx & lib/pq
+│       └── migrate.go            # Migration runner using sql-migrate
+├── migrations/                   # Versioned SQL migration files
+│   ├── 000001-create-users.up.sql
+│   ├── 000001-create-users.down.sql
+│   ├── 000002-create-products.up.sql
+│   └── 000002-create-products.down.sql
 ├── repo/
-│   ├── product.go                # Product model, ProductRepo interface & in-memory implementation
+│   ├── product.go                # Product model, ProductRepo interface & PostgreSQL implementation
 │   └── user.go                   # User model, UserRepo interface & PostgreSQL implementation
 ├── rest/
 │   ├── handlers/
@@ -86,7 +96,8 @@ The codebase follows a clean, feature-driven modular architecture with the **Rep
 ├── util/
 │   ├── create_jwt.go             # HMAC-SHA256 JWT creator & Base64URL encoder
 │   └── send_data.go              # JSON response helpers (SendData, SendError)
-├── .env                          # Local environment variables
+├── .env.example                  # Environment variables template
+├── .gitignore                    # Git ignore file (excludes .env)
 ├── go.mod                        # Go module definition
 ├── go.sum                        # Go module checksums
 ├── main.go                       # Application entry point
@@ -100,7 +111,7 @@ The codebase follows a clean, feature-driven modular architecture with the **Rep
 ### Prerequisites
 
 - **Go**: Version 1.22 or newer installed ([Download Go](https://go.dev/dl/))
-- **PostgreSQL**: Version 14 or newer running locally
+- **PostgreSQL**: Version 14 or newer installed and running
 - **Git**: Installed and configured
 
 ### 1. Clone the Repository
@@ -110,40 +121,55 @@ git clone https://github.com/Error-Nasim/go.git
 cd go
 ```
 
-### 2. Set Up the Database
+### 2. Configure Environment Variables
 
-Make sure PostgreSQL is running, then create the database and apply the initial migration schema:
+Copy the template `.env.example` file to `.env`:
 
 ```bash
-psql -U postgres -c "CREATE DATABASE ecommerce;"
-psql -U postgres -d ecommerce -f db_queries/001-user.sql
+cp .env.example .env
 ```
 
-### 3. Configure Environment Variables
-
-Create a `.env` file in the root directory:
+Open `.env` and fill in your PostgreSQL and server configurations:
 
 ```env
 VERSION=1.0.0
 SERVICE_NAME=ECOMMERCE
 HTTP_PORT=4000
 JWT_SECRET_KEY=your_secret_key_here
+
+DB_HOST=localhost
+DB_PORT=5432
+DB_NAME=ecommerce
+DB_USER=postgres
+DB_PASSWORD=your_postgres_password
+DB_ENABLE_SSL_MODE=false
 ```
 
-### 4. Install Dependencies
+Make sure the PostgreSQL database exists:
+```bash
+psql -U postgres -c "CREATE DATABASE ecommerce;"
+```
+
+### 3. Install Dependencies
 
 ```bash
 go mod tidy
 ```
 
-### 5. Run the Application
+### 4. Run the Application
 
 ```bash
 go run main.go
 ```
 
-The server will connect to PostgreSQL and start listening:
+On startup, the application will:
+1. Load environment configurations.
+2. Establish a connection to PostgreSQL.
+3. Automatically execute pending database migrations (`migrations/`).
+4. Start the HTTP server on `:4000`.
+
 ```text
+Sucessfully migrated database
 Server running on port :4000
 ```
 
@@ -157,7 +183,7 @@ Server running on port :4000
 |---|---|---|---|
 | `GET` | `/products` | List all available products | No |
 | `GET` | `/products/{id}` | Get product details by ID | No |
-| `POST` | `/users` | Register a new user (persists to PostgreSQL) | No |
+| `POST` | `/users` | Register a new user | No |
 | `POST` | `/users/login` | Authenticate user and receive JWT | No |
 
 ### 🔒 Protected Endpoints (Requires `Authorization: Bearer <token>`)
@@ -241,7 +267,7 @@ Content-Type: application/json
 **Response (201 Created):**
 ```json
 {
-  "id": 7,
+  "id": 1,
   "title": "Watermelon",
   "description": "Fresh and sweet organic watermelon",
   "price": 120,
@@ -263,56 +289,68 @@ GET /products HTTP/1.1
 [
   {
     "id": 1,
-    "title": "Orange",
-    "description": "Very Sweet Orange, Sweet like Sadie Sink",
-    "price": 100,
-    "imageUrl": "https://..."
+    "title": "Watermelon",
+    "description": "Fresh and sweet organic watermelon",
+    "price": 120,
+    "imageUrl": "https://example.com/watermelon.jpg"
   }
 ]
 ```
 
 ---
 
-## 🗺️ Learning Roadmap & Progress
+## 🗺️ Learning Roadmap & Course Progress
 
-- [x] Basic project setup & entry point (`cmd`, `main.go`)
-- [x] In-memory database & models (`User`, `Product`)
-- [x] CRUD REST handlers for Products
-- [x] Standard library multiplexer (`net/http.ServeMux`) with path parameters
-- [x] Custom Middleware Manager (`With`, `WrapMux`)
-- [x] Logger, CORS, and Preflight middlewares
-- [x] User registration & login handlers
-- [x] Custom HS256 JWT generator & verification middleware
-- [x] **Modular Architecture Refactoring**:
-  - [x] Domain-driven handler packages (`product`, `user`)
-  - [x] Encapsulated `RegisterRoutes` per domain
-  - [x] Dependency injection via `rest.NewServer` and handler constructors
-  - [x] Cached config pointer (`*Config`) to avoid repetitive `.env` reading
-  - [x] Middlewares struct with injected configuration
-- [x] **Repository Pattern & Layer Decoupling**:
-  - [x] Segregated data layer into `repo` package with `ProductRepo` and `UserRepo` Go interfaces
-  - [x] In-memory repository implementation for Products (`productRepo`)
-  - [x] Handlers depend on repository interfaces rather than concrete package state
-  - [x] Dedicated Request DTOs (`ReqCreateProduct`, `ReqUpdateProduct`, `ReqCreateUser`, `ReqLogin`)
-  - [x] Injected repositories into handler constructors
-- [x] **Persistent Database Integration (PostgreSQL & `sqlx`)**:
-  - [x] PostgreSQL connection management via `sqlx` and `lib/pq` (`infra/db/connection.go`)
-  - [x] Database migration schema for users (`db_queries/001-user.sql`)
-  - [x] PostgreSQL implementation for `UserRepo` with SQL queries and struct tag mapping
-  - [x] Injected `*sqlx.DB` connection into repository in `cmd/serve.go`
-- [ ] Migrate `ProductRepo` to persistent PostgreSQL database
-- [ ] Add Reviews domain & handlers
-- [ ] Password hashing with `bcrypt`
-- [ ] Token expiration and Refresh Token rotation
-- [ ] Role-based access control (RBAC - e.g. Shop Owner vs Customer)
-- [ ] Input validation library / custom validator
-- [ ] Unit & Integration testing
+Follows the **[Go with Habib - Golang Backend Development (Beginner Friendly)](https://youtube.com/playlist?list=PLpCqPSEm2Xe8sEY2haMDUVgwbkIs5NCJI)** playlist:
+
+### 🟢 Completed Milestones (Videos 047 – 066)
+
+- [x] **REST API Foundation & Standard Library Routing** *(Videos 047–051)*
+  - [x] Initial models & REST handlers
+  - [x] Preflight handling with `OPTIONS` method
+  - [x] Path parameters with enhanced `net/http.ServeMux`
+- [x] **Middleware Architecture & Authentication** *(Videos 052–056)*
+  - [x] Custom Middleware `Manager` (`With`, `WrapMux`)
+  - [x] Global Request Logger and CORS middlewares
+  - [x] Custom HS256 JWT generation (HMAC-SHA256, Base64URL)
+  - [x] Token verification middleware (`AuthenticateJwt`)
+- [x] **Decoupling, Interfaces & Repository Pattern** *(Videos 057–058)*
+  - [x] Removed tight coupling between handlers and storage
+  - [x] Defined `ProductRepo` and `UserRepo` interfaces in `repo/`
+  - [x] Constructor dependency injection (`product.NewHandler`, `user.NewHandler`)
+  - [x] Explicit Request DTOs (`ReqCreateProduct`, `ReqUpdateProduct`, `ReqCreateUser`, `ReqLogin`)
+- [x] **PostgreSQL Integration & CRUD Operations** *(Videos 059–064)*
+  - [x] PostgreSQL table creation & schema modeling
+  - [x] Database connection setup via `sqlx` and `lib/pq` (`infra/db/connection.go`)
+  - [x] `UserRepo` PostgreSQL implementation with parameterized SQL & `NamedQuery`
+  - [x] `ProductRepo` PostgreSQL implementation (full `Create`, `Get`, `List`, `Update`, `Delete`)
+- [x] **Database Configurations & Migrations** *(Videos 065–066)*
+  - [x] Centralized database credentials in `.env` and `config.DBConfig`
+  - [x] Untracked `.env`, added `.gitignore` & `.env.example`
+  - [x] Automated migrations using `sql-migrate` in `infra/db/migrate.go`
+  - [x] Versioned migration files (`migrations/`) executed automatically on server start
+
+---
+
+### 🟡 Upcoming Milestones (Videos 067 – 079)
+
+- [ ] **Phase 5: Domain-Driven Design (DDD)** *(Videos 067–069)*
+  - [ ] **067: Introduction to DDD**: Entities, Aggregates, Value Objects, and Services
+  - [ ] **068–069: DDD into Code (Part 1 & 2)**: Refactoring code into clean Domain-Driven architecture
+- [ ] **Phase 6: Advanced Backend Features** *(Videos 070–072)*
+  - [ ] **070: Internationalization**: Multilingual support (i18n)
+  - [ ] **071–072: Pagination**: Query parameters (`limit`, `offset`), database pagination queries, and response mapping
+- [ ] **Phase 7: Advanced Go Concurrency & Performance** *(Videos 073–079)*
+  - [ ] **073: Goroutines & Channels**: Asynchronous processing in backend services
+  - [ ] **074–075: `sync.WaitGroup`**: Managing concurrent background tasks and internals
+  - [ ] **076–077: Race Conditions & Mutexes**: Thread-safe shared state with `sync.Mutex` and `sync.RWMutex`
+  - [ ] **078–079: Deadlocks & Advanced Channels**: Buffered channels, select statements, and deadlock prevention
 
 ---
 
 ## 📚 Acknowledgements
 
-- Tutorials and curriculum inspired by the **[Go with Habib](https://www.youtube.com/@gowithhabib)** YouTube channel.
+- Tutorials and curriculum following the **[Go with Habib - Golang Backend Development (Beginner Friendly)](https://youtube.com/playlist?list=PLpCqPSEm2Xe8sEY2haMDUVgwbkIs5NCJI)** YouTube playlist.
 - Official [Go Documentation](https://go.dev/doc/).
 
 ---
