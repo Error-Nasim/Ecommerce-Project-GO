@@ -1,6 +1,6 @@
 # E-Commerce REST API in Go 🛒🐹
 
-A modular, lightweight RESTful E-Commerce API built with **Go (Golang)** using the standard library `net/http`, **PostgreSQL** with `sqlx`, and clean architectural patterns.
+A modular, lightweight RESTful E-Commerce API built with **Go (Golang)** using the standard library `net/http`, **PostgreSQL** with `sqlx`, and clean architectural patterns based on **Domain-Driven Design (DDD)** and **Ports & Adapters (Hexagonal Architecture)**.
 
 This project is created as part of my journey learning backend development in Go, following the **[Go with Habib - Golang Backend Development (Beginner Friendly)](https://youtube.com/playlist?list=PLpCqPSEm2Xe8sEY2haMDUVgwbkIs5NCJI)** YouTube channel tutorials.
 
@@ -10,32 +10,38 @@ This project is created as part of my journey learning backend development in Go
 
 This API provides core e-commerce backend functionalities including product management, user registration, and authentication using custom JSON Web Tokens (JWT). 
 
-The codebase follows a clean, feature-driven modular architecture with the **Repository Pattern (Go interfaces)**, PostgreSQL persistence via `sqlx`, automated database migrations via `sql-migrate`, dependency injection, standard library routing (`net/http.ServeMux`), custom middleware chaining, and dedicated request DTOs—all without relying on heavy third-party web frameworks.
+The codebase follows a clean, feature-driven modular architecture with **Domain-Driven Design (DDD)**, service orchestration via **Ports & Adapters**, the **Repository Pattern (Go interfaces)**, PostgreSQL persistence via `sqlx`, automated database migrations via `sql-migrate`, dependency injection, standard library routing (`net/http.ServeMux`), custom middleware chaining, and dedicated request DTOs—all without relying on heavy third-party web frameworks.
 
 ---
 
 ## ✨ Features & Architecture
 
-- **Domain-Driven Modularization**: Handlers and route registrations are grouped by domain (`product`, `user`), each encapsulating its own `RegisterRoutes` method.
-- **Repository Pattern with Interfaces**: Decouples data access from HTTP handler logic via Go interfaces:
-  - `repo.UserRepo`: User registration and credential lookup (`Create`, `Find`) backed by **PostgreSQL** via `sqlx`.
-  - `repo.ProductRepo`: Full CRUD operations (`Create`, `Get`, `List`, `Update`, `Delete`) backed by **PostgreSQL** via `sqlx`.
+- **Domain-Driven Design (DDD) & Ports & Adapters Architecture**:
+  - **Domain Entities (`domain/`)**: Pure core business models (`domain.Product`, `domain.User`) decoupled from HTTP transport and database concerns.
+  - **Domain Services & Ports (`product/`, `user/`)**:
+    - Centralizes business logic in dedicated service implementations (`product.Service`, `user.Service`).
+    - Declares repository interfaces (`ProductRepo`, `UserRepo`) as secondary/driven ports.
+  - **Inverted HTTP Service Ports (`rest/handlers/*/port.go`)**:
+    - Handlers define the contract (`Service` interface) they require from the business layer, achieving true decoupling and inversion of control.
+  - **Infrastructure Adapters (`repo/`)**:
+    - PostgreSQL repository implementations satisfying domain repository ports.
+- **Full Dependency Injection Chain (`cmd/serve.go`)**:
+  - `Database Connection` -> Injected into `Repositories` (`repo.NewProductRepo`, `repo.NewUserRepo`).
+  - `Repositories` -> Injected into `Domain Services` (`product.NewService`, `user.NewService`).
+  - `Domain Services` -> Injected into `HTTP Handlers` (`prdctHandler.NewHandler`, `usrHandler.NewHandler`).
+  - `HTTP Handlers` -> Injected into `Server` (`rest.NewServer`).
 - **Persistent Database (PostgreSQL & `sqlx`)**:
   - Integrated with PostgreSQL using `github.com/jmoiron/sqlx` and `github.com/lib/pq`.
+  - Full CRUD operations for Products (`Create`, `Get`, `List`, `Update`, `Delete`) and Users (`Create`, `Find`).
   - Safe parameterized SQL queries (`$1, $2, ...`) and `RETURNING id` statements.
-  - Infrastructure connection builder in `infra/db/connection.go` assembling connection strings dynamically from structured configuration.
+  - Dynamic connection builder in `infra/db/connection.go` assembling connection strings from structured configuration.
 - **Automated Database Migrations**:
-  - Migration management powered by `github.com/rubenv/sql-migrate` in `infra/db/migrate.go`.
+  - Powered by `github.com/rubenv/sql-migrate` in `infra/db/migrate.go`.
   - Versioned migration files in `migrations/` with `-- +migrate Up` and `-- +migrate Down` definitions.
   - Automatically runs pending migrations on application startup (`cmd/serve.go`).
 - **Centralized Configuration & Secrets Management**:
   - Strongly typed configuration structs (`config.Config`, `config.DBConfig`) parsing server and database options.
   - Secure `.env` handling: `.env` is untracked in `.gitignore`, and a clean [`.env.example`](.env.example) template is provided for setup.
-- **Dependency Injection**:
-  - `cmd/serve.go` wires dependencies: DB connection (`*sqlx.DB`), repositories (`ProductRepo`, `UserRepo`), configuration (`*Config`), and middlewares (`*Middlewares`).
-  - `user.Handler` receives `*Config` and `UserRepo`.
-  - `product.Handler` receives `*Middlewares` and `ProductRepo`.
-  - `rest.Server` receives `*Config` and domain handlers.
 - **Request Data Transfer Objects (DTOs)**: Incoming JSON payloads are deserialized into explicit request DTO structs (`ReqCreateProduct`, `ReqUpdateProduct`, `ReqCreateUser`, `ReqLogin`) rather than raw models.
 - **Standard Library Routing**: Uses Go 1.22+ enhanced `net/http.ServeMux` with pattern matching (`METHOD /path/{id}`).
 - **Custom Middleware Architecture**:
@@ -52,13 +58,16 @@ The codebase follows a clean, feature-driven modular architecture with the **Rep
 
 ```text
 ├── cmd/
-│   └── serve.go                  # Application bootstrapper, DB connection, auto-migration & DI
+│   └── serve.go                  # Application bootstrapper, DB init, auto-migration & full DI wiring
 ├── config/
 │   └── config.go                 # Environment & DB config loader (Config, DBConfig)
 ├── db_queries/                   # Standalone reference SQL DDL schemas
 │   ├── 001-user.sql              # Users table schema
 │   └── 002-create-table-product.sql # Products table schema
-├── infra/
+├── domain/                       # Core Domain Entities (Layer 1)
+│   ├── product.go                # Pure Product domain model
+│   └── user.go                   # Pure User domain model
+├── infra/                        # Infrastructure & Database Setup
 │   └── db/
 │       ├── connection.go         # PostgreSQL connection builder using sqlx & lib/pq
 │       └── migrate.go            # Migration runner using sql-migrate
@@ -67,21 +76,26 @@ The codebase follows a clean, feature-driven modular architecture with the **Rep
 │   ├── 000001-create-users.down.sql
 │   ├── 000002-create-products.up.sql
 │   └── 000002-create-products.down.sql
-├── repo/
-│   ├── product.go                # Product model, ProductRepo interface & PostgreSQL implementation
-│   └── user.go                   # User model, UserRepo interface & PostgreSQL implementation
-├── rest/
+├── product/                      # Product Domain Service Layer (Layer 2)
+│   ├── port.go                   # Product Service & ProductRepo interfaces (Ports)
+│   └── service.go                # Product business logic service implementation
+├── repo/                         # Repository Adapters (Layer 3)
+│   ├── product.go                # Product repository implementing product.ProductRepo with PostgreSQL
+│   └── user.go                   # User repository implementing user.UserRepo with PostgreSQL
+├── rest/                         # HTTP Transport & Delivery (Layer 3)
 │   ├── handlers/
-│   │   ├── product/              # Product domain module
-│   │   │   ├── handler.go        # Product Handler struct with injected middlewares & ProductRepo
+│   │   ├── product/              # Product HTTP handler module
+│   │   │   ├── handler.go        # Handler struct receiving middlewares & product Service port
+│   │   │   ├── port.go           # Service contract required by Product handler
 │   │   │   ├── routes.go         # Product routes registration
 │   │   │   ├── create_product.go # Create new product (Protected, uses ReqCreateProduct DTO)
 │   │   │   ├── get_products.go   # List all products
 │   │   │   ├── get_product.go    # Fetch product by ID
 │   │   │   ├── update_product.go # Update existing product (Protected, uses ReqUpdateProduct DTO)
 │   │   │   └── delete_product.go # Delete product by ID (Protected)
-│   │   └── user/                 # User domain module
-│   │       ├── handler.go        # User Handler struct with injected config & UserRepo
+│   │   └── user/                 # User HTTP handler module
+│   │       ├── handler.go        # Handler struct receiving config & user Service port
+│   │       ├── port.go           # Service contract required by User handler
 │   │       ├── routes.go         # User routes registration
 │   │       ├── create_user.go    # Register new user (persists to PostgreSQL)
 │   │       └── login.go          # User login & JWT issuance
@@ -93,6 +107,9 @@ The codebase follows a clean, feature-driven modular architecture with the **Rep
 │   │   ├── preflight.go          # OPTIONS preflight request handler
 │   │   └── authenticate_jwt.go   # JWT validation middleware using injected config
 │   └── server.go                 # Server struct with injected handlers & HTTP listener
+├── user/                         # User Domain Service Layer (Layer 2)
+│   ├── port.go                   # User Service & UserRepo interfaces (Ports)
+│   └── service.go                # User business logic service implementation
 ├── util/
 │   ├── create_jwt.go             # HMAC-SHA256 JWT creator & Base64URL encoder
 │   └── send_data.go              # JSON response helpers (SendData, SendError)
@@ -166,7 +183,8 @@ On startup, the application will:
 1. Load environment configurations.
 2. Establish a connection to PostgreSQL.
 3. Automatically execute pending database migrations (`migrations/`).
-4. Start the HTTP server on `:4000`.
+4. Wire together dependencies (Repositories -> Domain Services -> HTTP Handlers -> Server).
+5. Start the HTTP server on `:4000`.
 
 ```text
 Sucessfully migrated database
@@ -303,7 +321,7 @@ GET /products HTTP/1.1
 
 Follows the **[Go with Habib - Golang Backend Development (Beginner Friendly)](https://youtube.com/playlist?list=PLpCqPSEm2Xe8sEY2haMDUVgwbkIs5NCJI)** playlist:
 
-### 🟢 Completed Milestones (Videos 047 – 066)
+### 🟢 Completed Milestones (Videos 047 – 069)
 
 - [x] **REST API Foundation & Standard Library Routing** *(Videos 047–051)*
   - [x] Initial models & REST handlers
@@ -316,8 +334,8 @@ Follows the **[Go with Habib - Golang Backend Development (Beginner Friendly)](h
   - [x] Token verification middleware (`AuthenticateJwt`)
 - [x] **Decoupling, Interfaces & Repository Pattern** *(Videos 057–058)*
   - [x] Removed tight coupling between handlers and storage
-  - [x] Defined `ProductRepo` and `UserRepo` interfaces in `repo/`
-  - [x] Constructor dependency injection (`product.NewHandler`, `user.NewHandler`)
+  - [x] Defined repository interfaces
+  - [x] Constructor dependency injection
   - [x] Explicit Request DTOs (`ReqCreateProduct`, `ReqUpdateProduct`, `ReqCreateUser`, `ReqLogin`)
 - [x] **PostgreSQL Integration & CRUD Operations** *(Videos 059–064)*
   - [x] PostgreSQL table creation & schema modeling
@@ -329,14 +347,16 @@ Follows the **[Go with Habib - Golang Backend Development (Beginner Friendly)](h
   - [x] Untracked `.env`, added `.gitignore` & `.env.example`
   - [x] Automated migrations using `sql-migrate` in `infra/db/migrate.go`
   - [x] Versioned migration files (`migrations/`) executed automatically on server start
+- [x] **Domain-Driven Design (DDD) & Ports & Adapters Refactoring** *(Videos 067–069)*
+  - [x] Centralized pure business entities in `domain/` (`Product`, `User`)
+  - [x] Domain Service layer in `product/` and `user/` handling business logic
+  - [x] Inverted service ports (`rest/handlers/*/port.go`) decoupling HTTP handlers from services
+  - [x] Clean multi-tiered Dependency Injection wiring in `cmd/serve.go`
 
 ---
 
-### 🟡 Upcoming Milestones (Videos 067 – 079)
+### 🟡 Upcoming Milestones (Videos 070 – 079)
 
-- [ ] **Phase 5: Domain-Driven Design (DDD)** *(Videos 067–069)*
-  - [ ] **067: Introduction to DDD**: Entities, Aggregates, Value Objects, and Services
-  - [ ] **068–069: DDD into Code (Part 1 & 2)**: Refactoring code into clean Domain-Driven architecture
 - [ ] **Phase 6: Advanced Backend Features** *(Videos 070–072)*
   - [ ] **070: Internationalization**: Multilingual support (i18n)
   - [ ] **071–072: Pagination**: Query parameters (`limit`, `offset`), database pagination queries, and response mapping
