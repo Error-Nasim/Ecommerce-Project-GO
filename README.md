@@ -10,7 +10,7 @@ This project is created as part of my journey learning backend development in Go
 
 This API provides core e-commerce backend functionalities including product management, user registration, and authentication using custom JSON Web Tokens (JWT). 
 
-The codebase follows a clean, feature-driven modular architecture with **Domain-Driven Design (DDD)**, service orchestration via **Ports & Adapters**, the **Repository Pattern (Go interfaces)**, PostgreSQL persistence via `sqlx`, automated database migrations via `sql-migrate`, dependency injection, standard library routing (`net/http.ServeMux`), custom middleware chaining, and dedicated request DTOs—all without relying on heavy third-party web frameworks.
+The codebase follows a clean, feature-driven modular architecture with **Domain-Driven Design (DDD)**, service orchestration via **Ports & Adapters**, the **Repository Pattern (Go interfaces)**, PostgreSQL persistence via `sqlx`, automated database migrations via `sql-migrate`, dependency injection, standard library routing (`net/http.ServeMux`), custom middleware chaining, and dedicated request/response DTOs (including pagination)—all without relying on heavy third-party web frameworks.
 
 ---
 
@@ -39,6 +39,10 @@ The codebase follows a clean, feature-driven modular architecture with **Domain-
   - Powered by `github.com/rubenv/sql-migrate` in `infra/db/migrate.go`.
   - Versioned migration files in `migrations/` with `-- +migrate Up` and `-- +migrate Down` definitions.
   - Automatically runs pending migrations on application startup (`cmd/serve.go`).
+- **Pagination & Query Parameters**:
+  - Products listing supports `page` and `limit` query parameters with safe fallback defaults (`page=1`, `limit=10`).
+  - Repository calculates dynamic SQL `LIMIT` and `OFFSET` queries alongside `SELECT COUNT(*)` for total items.
+  - Standardized JSON pagination envelope formatted with `util.SendPage`: includes current page, limit, total items, and total pages.
 - **Centralized Configuration & Secrets Management**:
   - Strongly typed configuration structs (`config.Config`, `config.DBConfig`) parsing server and database options.
   - Secure `.env` handling: `.env` is untracked in `.gitignore`, and a clean [`.env.example`](.env.example) template is provided for setup.
@@ -80,16 +84,16 @@ The codebase follows a clean, feature-driven modular architecture with **Domain-
 │   ├── port.go                   # Product Service & ProductRepo interfaces (Ports)
 │   └── service.go                # Product business logic service implementation
 ├── repo/                         # Repository Adapters (Layer 3)
-│   ├── product.go                # Product repository implementing product.ProductRepo with PostgreSQL
+│   ├── product.go                # Product repository implementing product.ProductRepo with PostgreSQL & pagination
 │   └── user.go                   # User repository implementing user.UserRepo with PostgreSQL
 ├── rest/                         # HTTP Transport & Delivery (Layer 3)
 │   ├── handlers/
 │   │   ├── product/              # Product HTTP handler module
 │   │   │   ├── handler.go        # Handler struct receiving middlewares & product Service port
-│   │   │   ├── port.go           # Service contract required by Product handler
+│   │   │   ├── port.go           # Service contract required by Product handler (List with pagination, Count)
 │   │   │   ├── routes.go         # Product routes registration
 │   │   │   ├── create_product.go # Create new product (Protected, uses ReqCreateProduct DTO)
-│   │   │   ├── get_products.go   # List all products
+│   │   │   ├── get_products.go   # List products with page & limit query parameters
 │   │   │   ├── get_product.go    # Fetch product by ID
 │   │   │   ├── update_product.go # Update existing product (Protected, uses ReqUpdateProduct DTO)
 │   │   │   └── delete_product.go # Delete product by ID (Protected)
@@ -112,7 +116,8 @@ The codebase follows a clean, feature-driven modular architecture with **Domain-
 │   └── service.go                # User business logic service implementation
 ├── util/
 │   ├── create_jwt.go             # HMAC-SHA256 JWT creator & Base64URL encoder
-│   └── send_data.go              # JSON response helpers (SendData, SendError)
+│   ├── send_data.go              # JSON response helpers (SendData, SendError)
+│   └── send_page.go              # Standardized JSON pagination response helper (SendPage, PaginatedData)
 ├── .env.example                  # Environment variables template
 ├── .gitignore                    # Git ignore file (excludes .env)
 ├── go.mod                        # Go module definition
@@ -199,7 +204,7 @@ Server running on port :4000
 
 | Method | Endpoint | Description | Auth Required |
 |---|---|---|---|
-| `GET` | `/products` | List all available products | No |
+| `GET` | `/products?page=1&limit=10` | List products with pagination | No |
 | `GET` | `/products/{id}` | Get product details by ID | No |
 | `POST` | `/users` | Register a new user | No |
 | `POST` | `/users/login` | Authenticate user and receive JWT | No |
@@ -295,24 +300,32 @@ Content-Type: application/json
 
 ---
 
-### 4. Get All Products (`GET /products`)
+### 4. Get Paginated Products (`GET /products?page=1&limit=10`)
 
 **Request:**
 ```http
-GET /products HTTP/1.1
+GET /products?page=1&limit=10 HTTP/1.1
 ```
 
-**Response (201 Created):**
+**Response (200 OK):**
 ```json
-[
-  {
-    "id": 1,
-    "title": "Watermelon",
-    "description": "Fresh and sweet organic watermelon",
-    "price": 120,
-    "imageUrl": "https://example.com/watermelon.jpg"
+{
+  "data": [
+    {
+      "id": 1,
+      "title": "Watermelon",
+      "description": "Fresh and sweet organic watermelon",
+      "price": 120,
+      "imageUrl": "https://example.com/watermelon.jpg"
+    }
+  ],
+  "pagination": {
+    "page": 1,
+    "limit": 10,
+    "totalItems": 1,
+    "totalPages": 0
   }
-]
+}
 ```
 
 ---
@@ -321,7 +334,7 @@ GET /products HTTP/1.1
 
 Follows the **[Go with Habib - Golang Backend Development (Beginner Friendly)](https://youtube.com/playlist?list=PLpCqPSEm2Xe8sEY2haMDUVgwbkIs5NCJI)** playlist:
 
-### 🟢 Completed Milestones (Videos 047 – 069)
+### 🟢 Completed Milestones (Videos 047 – 072)
 
 - [x] **REST API Foundation & Standard Library Routing** *(Videos 047–051)*
   - [x] Initial models & REST handlers
@@ -352,14 +365,17 @@ Follows the **[Go with Habib - Golang Backend Development (Beginner Friendly)](h
   - [x] Domain Service layer in `product/` and `user/` handling business logic
   - [x] Inverted service ports (`rest/handlers/*/port.go`) decoupling HTTP handlers from services
   - [x] Clean multi-tiered Dependency Injection wiring in `cmd/serve.go`
+- [x] **Pagination & Query Parameters** *(Videos 071–072)*
+  - [x] Query parameter extraction for `page` and `limit` in `GetProducts`
+  - [x] SQL pagination queries (`LIMIT $1 OFFSET $2`) and `SELECT COUNT(*)` in repository
+  - [x] Standardized `util.SendPage` JSON helper with `PaginatedData` and `Pagination` metadata structs
 
 ---
 
-### 🟡 Upcoming Milestones (Videos 070 – 079)
+### 🟡 Upcoming Milestones (Videos 070, 073 – 079)
 
-- [ ] **Phase 6: Advanced Backend Features** *(Videos 070–072)*
+- [ ] **Phase 6: Multilingual Support** *(Video 070)*
   - [ ] **070: Internationalization**: Multilingual support (i18n)
-  - [ ] **071–072: Pagination**: Query parameters (`limit`, `offset`), database pagination queries, and response mapping
 - [ ] **Phase 7: Advanced Go Concurrency & Performance** *(Videos 073–079)*
   - [ ] **073: Goroutines & Channels**: Asynchronous processing in backend services
   - [ ] **074–075: `sync.WaitGroup`**: Managing concurrent background tasks and internals
